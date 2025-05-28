@@ -192,8 +192,6 @@ void CMP_SetMipSetGamma(MipSet* pMipSet, CMP_FLOAT Gamma)
 
 void GenerateMipmapLevel(MipLevel* currMipLevel, MipLevel** prevMipLevels, uint32_t numPrevLevels, CMP_FORMAT format)
 {
-    static const uint32_t numChannels = 4;
-
     assert(currMipLevel);
     assert(prevMipLevels);
     assert(numPrevLevels != 0);
@@ -208,6 +206,7 @@ void GenerateMipmapLevel(MipLevel* currMipLevel, MipLevel** prevMipLevels, uint3
     CMP_ChannelFormat channelFormat = GetChannelFormat(format);
 
     const uint32_t bytesPerChannel = GetChannelFormatBitSize(format) / 8;
+    const uint32_t numChannels = currMipLevel->m_dwLinearSize / (currMipLevel->m_nWidth * currMipLevel->m_nHeight * bytesPerChannel);
     uint32_t       bytesPerPixel   = bytesPerChannel * numChannels;
 
     if (format == CMP_FORMAT_ARGB_2101010 || format == CMP_FORMAT_RGBA_1010102)

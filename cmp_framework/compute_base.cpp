@@ -655,34 +655,140 @@ void CMP_API CMP_GetMipLevel(CMP_MipLevel** data, const CMP_MipSet* pMipSet, int
 
 CMP_ERROR stb_load(const char* SourceFile, MipSet* MipSetIn)
 {
-    int            Width, Height, ComponentCount;
-    unsigned char* pTempData = stbi_load(SourceFile, &Width, &Height, &ComponentCount, STBI_rgb_alpha);
+    int Width, Height, ComponentCount;
+    int ChSize;
+    ChannelFormat ChFormat;
+    CMP_FORMAT TexFormat;
+
+    FILE *stbiFile = stbi__fopen(SourceFile, "rb");
+    if (!stbiFile)
+    {
+        return CMP_ERR_UNABLE_TO_LOAD_FILE;
+    }
+        
+    if (!stbi_info_from_file(stbiFile, &Width, &Height, &ComponentCount))
+    {
+        return CMP_ERR_UNSUPPORTED_SOURCE_FORMAT;
+    }
+
+    unsigned char* pTempData = nullptr;
+
+    if (stbi_is_16_bit_from_file(stbiFile))
+    {
+        ChSize      = 2;
+        ChFormat    = CF_16bit;
+
+        const int ReqComp = ComponentCount >= 3 ? 4 : ComponentCount;
+        pTempData   = (unsigned char*)stbi_load_from_file_16(stbiFile, &Width, &Height, &ComponentCount, ReqComp);
+        ComponentCount = ReqComp;
+
+        if (ComponentCount == 1)
+        {
+            TexFormat = CMP_FORMAT_R_16;
+        }
+        else if (ComponentCount == 2)
+        {
+            TexFormat = CMP_FORMAT_RG_16;
+        }
+        else
+        {
+            TexFormat = CMP_FORMAT_RGBA_16;
+        }
+    }
+    else if (stbi_is_hdr_from_file(stbiFile))
+    {
+        ChSize      = 4;
+        ChFormat    = CF_Float32;
+
+        const int ReqComp = ComponentCount >= 3 ? 4 : ComponentCount;
+        pTempData = (unsigned char*)stbi_loadf_from_file(stbiFile, &Width, &Height, &ComponentCount, ReqComp);
+        ComponentCount = ReqComp;
+
+        if (ComponentCount == 1)
+        {
+            TexFormat = CMP_FORMAT_R_32F;
+        }
+        else if (ComponentCount == 2)
+        {
+            TexFormat = CMP_FORMAT_RG_32F;
+        }
+        else
+        {
+            TexFormat   = CMP_FORMAT_RGBA_32F;
+        }
+    }
+    else
+    {
+        ChSize      = 1;
+        ChFormat    = CF_8bit;
+
+        pTempData = stbi_load_from_file(stbiFile, &Width, &Height, &ComponentCount, ComponentCount);
+
+        if (ComponentCount == 1)
+        {
+            TexFormat = CMP_FORMAT_R_8;
+        }
+        else if (ComponentCount == 2)
+        {
+            TexFormat = CMP_FORMAT_RG_8;
+        }
+        else if (ComponentCount == 3)
+        {
+            TexFormat = CMP_FORMAT_RGB_888;
+        }
+        else
+        {
+            TexFormat = CMP_FORMAT_RGBA_8888;
+        }
+    }
+
+    fclose(stbiFile);
+    stbiFile = nullptr;
 
     if (pTempData == NULL)
     {
         return CMP_ERR_UNSUPPORTED_SOURCE_FORMAT;
     }
+    
+    TextureDataType TexDataType;
+    if (ComponentCount == 1)
+    {
+        TexDataType = TDT_R;
+    }
+    else if (ComponentCount == 2)
+    {
+        TexDataType = TDT_RG;
+    }
+    else if (ComponentCount == 3)
+    {
+        TexDataType = TDT_RGB;
+    }
+    else
+    {
+        TexDataType = TDT_ARGB;
+    }
 
     CMP_CMIPS CMips;
 
     memset(MipSetIn, 0, sizeof(MipSet));
-    if (!CMips.AllocateMipSet(MipSetIn, CF_8bit, TDT_ARGB, TT_2D, Width, Height, 1))
+    if (!CMips.AllocateMipSet(MipSetIn, ChFormat, TexDataType, TT_2D, Width, Height, 1))
     {
         return CMP_ERR_MEM_ALLOC_FOR_MIPSET;
     }
 
-    if (!CMips.AllocateMipLevelData(CMips.GetMipLevel(MipSetIn, 0), Width, Height, CF_8bit, TDT_ARGB))
+    if (!CMips.AllocateMipLevelData(CMips.GetMipLevel(MipSetIn, 0), Width, Height, ChFormat, TexDataType))
     {
         return CMP_ERR_MEM_ALLOC_FOR_MIPSET;
     }
 
     MipSetIn->m_nMipLevels = 1;
-    MipSetIn->m_format     = CMP_FORMAT_RGBA_8888;
+    MipSetIn->m_format     = TexFormat;
+    MipSetIn->m_isSigned   = TexFormat == CMP_FORMAT_R_32F || TexFormat == CMP_FORMAT_RG_32F || TexFormat == CMP_FORMAT_RGB_32F || TexFormat == CMP_FORMAT_RGBA_32F;
+    MipSetIn->m_nChannels  = ComponentCount;
 
     CMP_BYTE* pData = CMips.GetMipLevel(MipSetIn, 0)->m_pbData;
 
-    // RGBA : 8888 = 4 bytes
-    CMP_DWORD dwPitch = (4 * MipSetIn->m_nWidth);
+    CMP_DWORD dwPitch = (ChSize * ComponentCount * MipSetIn->m_nWidth);
     CMP_DWORD dwSize  = dwPitch * MipSetIn->m_nHeight;
 
     memcpy(pData, pTempData, dwSize);
